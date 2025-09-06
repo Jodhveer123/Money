@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Expense Tracker Firebase All-in-One</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+<!-- Firebase SDKs -->
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, GoogleAuthProvider, signInWithPopup, sendPasswordResetEmail, updateProfile } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+import { getFirestore, collection, addDoc, getDocs, deleteDoc, doc, query, where } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+import { getStorage, ref, uploadBytes, getDownloadURL } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-storage.js";
+
+// 🔥 Your Firebase Config
+const firebaseConfig = {
+  apiKey: "YOUR_API_KEY",
+  authDomain: "YOUR_PROJECT_ID.firebaseapp.com",
+  projectId: "YOUR_PROJECT_ID",
+  storageBucket: "YOUR_PROJECT_ID.appspot.com",
+  messagingSenderId: "YOUR_SENDER_ID",
+  appId: "YOUR_APP_ID"
+};
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+const db = getFirestore(app);
+const storage = getStorage(app);
+const provider = new GoogleAuthProvider();
+window.auth = auth; window.db = db; window.storage = storage; window.provider = provider;
+</script>
+
+<style>
+body { font-family: Arial, sans-serif; background: #f2f2f2; margin:0; padding:0;}
+.hidden { display:none;}
+.auth, .container { max-width: 600px; margin: 30px auto; padding: 20px; background:#fff; border-radius:12px; box-shadow:0 4px 12px rgba(0,0,0,0.1); text-align:center;}
+input, select { width:90%; margin:10px 0; padding:10px; border-radius:8px; border:1px solid #ccc;}
+button { padding:8px 12px; border:none; border-radius:8px; cursor:pointer; background:#007bff; color:white; margin:5px;}
+.google-btn { background:#db4437; font-weight:bold; } .google-btn:hover { background:#c23321;}
+.reset-btn { background:#555;} .reset-btn:hover { background:#333;}
+.logout { float:right; margin-top:-40px; background:#ff4444; padding:6px 12px;}
+.balance, .income-expense, #profile-section { margin:20px 0;}
+.income-expense div { display:inline-block; width:45%; text-align:center; }
+#list li { display:flex; justify-content:space-between; margin:5px 0; padding:5px; background:#eee; border-radius:8px; }
+#list button { background:#ff4444; padding:2px 6px; }
+#profile-section { background:#222; color:white; padding:15px; border-radius:12px;}
+#profile-section input { margin:5px 0; padding:8px; border-radius:8px; border:none;}
+#profile-section button { padding:6px 12px; border:none; border-radius:8px; cursor:pointer; background:#007bff; color:white;}
+#profile-section img { margin-top:10px; border:2px solid #fff; border-radius:50%; width:100px;}
+</style>
+</head>
+<body>
+
+<div id="auth-section" class="auth">
+  <h2>Login / Signup</h2>
+  <input type="email" id="email" placeholder="Enter Email" required>
+  <input type="password" id="password" placeholder="Enter Password" required>
+  <button id="loginBtn">Login</button>
+  <button id="signupBtn">Signup</button>
+  <hr>
+  <button id="googleLoginBtn" class="google-btn">Login with Google</button>
+  <br><br>
+  <button id="resetPasswordBtn" class="reset-btn">Forgot Password?</button>
+</div>
+
+<div id="app-section" class="container hidden">
+  <button id="logoutBtn" class="logout">Logout</button>
+
+  <div id="profile-section">
+    <h2>Your Profile</h2>
+    <p>Email: <span id="userEmail"></span></p>
+    <p>Display Name: <span id="userName"></span></p>
+    <input type="text" id="displayNameInput" placeholder="Set display name">
+    <button id="setNameBtn">Save Name</button><br><br>
+    <input type="file" id="profilePicInput">
+    <button id="uploadPicBtn">Upload Profile Picture</button><br>
+    <img id="profilePic" src="" alt="Profile Picture" style="display:none;">
+  </div>
+
+  <div class="balance"><h2>Your Balance</h2><p id="balance">$0.00</p></div>
+  <div class="income-expense">
+    <div><h3>Income</h3><p id="income">+$0.00</p></div>
+    <div><h3>Expense</h3><p id="expense">-$0.00</p></div>
+  </div>
+  <canvas id="expenseChart"></canvas>
+  <h3>History</h3>
+  <ul id="list"></ul>
+  <h3>Add New Transaction</h3>
+  <form id="form">
+    <input type="text" id="text" placeholder="Enter description" required>
+    <input type="number" id="amount" placeholder="Enter amount (+/-)" required>
+    <select id="category" required>
+      <option value="General">General</option>
+      <option value="Food">Food</option>
+      <option value="Transport">Transport</option>
+      <option value="Shopping">Shopping</option>
+      <option value="Bills">Bills</option>
+      <option value="Salary">Salary</option>
+      <option value="Other">Other</option>
+    </select>
+    <button type="submit">Add Transaction</button>
+  </form>
+</div>
+
+<script type="module">
+import { auth, db, storage, provider } from window;
+
+import { onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, signInWithPopup, sendPasswordResetEmail, updateProfile, GoogleAuthProvider } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+import { collection, addDoc, getDocs, deleteDoc, doc, query, where } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+import { ref, uploadBytes, getDownloadURL } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-storage.js";
+
+// UI Elements
+const authSection=document.getElementById("auth-section"), appSection=document.getElementById("app-section");
+const emailInput=document.getElementById("email"), passwordInput=document.getElementById("password");
+const loginBtn=document.getElementById("loginBtn"), signupBtn=document.getElementById("signupBtn");
+const googleLoginBtn=document.getElementById("googleLoginBtn"), resetPasswordBtn=document.getElementById("resetPasswordBtn");
+const logoutBtn=document.getElementById("logoutBtn");
+const userEmail=document.getElementById("userEmail"), userName=document.getElementById("userName");
+const displayNameInput=document.getElementById("displayNameInput"), setNameBtn=document.getElementById("setNameBtn");
+const profilePicInput=document.getElementById("profilePicInput"), uploadPicBtn=document.getElementById("uploadPicBtn"), profilePic=document.getElementById("profilePic");
+const balance=document.getElementById("balance"), income=document.getElementById("income"), expense=document.getElementById("expense");
+const list=document.getElementById("list"), form=document.getElementById("form"), text=document.getElementById("text"), amount=document.getElementById("amount"), category=document.getElementById("category");
+
+let currentUser=null;
+let expenseChart=new Chart(document.getElementById("expenseChart"),{type:"pie",data:{labels:["Food","Transport","Shopping","Bills","Salary","Other","General"],datasets:[{data:[0,0,0,0,0,0,0],backgroundColor:["#ff4444","#ffaa00","#00aaff","#8844ff","#00ff88","#ff66cc","#999999"]}]}});
+
+// Auth functions
+signupBtn.addEventListener("click", async()=>{try{await createUserWithEmailAndPassword(auth,emailInput.value,passwordInput.value);}catch(err){alert(err.message);}});
+loginBtn.addEventListener("click", async()=>{try{await signInWithEmailAndPassword(auth,emailInput.value,passwordInput.value);}catch(err){alert(err.message);}});
+googleLoginBtn.addEventListener("click", async()=>{try{await signInWithPopup(auth,provider);}catch(err){alert(err.message);}});
+resetPasswordBtn.addEventListener("click", async()=>{const email=emailInput.value;if(!email){alert("Enter email"); return;} try{await sendPasswordResetEmail(auth,email); alert("Reset email sent");}catch(err){alert(err.message);}});
+logoutBtn.addEventListener("click", async()=>{await signOut(auth);});
+
+// Profile functions
+setNameBtn.addEventListener("click", async()=>{if(auth.currentUser && displayNameInput.value.trim()!==""){await updateProfile(auth.currentUser,{displayName:displayNameInput.value});alert("Display name updated"); displayNameInput.value=""; updateProfileUI();}});
+uploadPicBtn.addEventListener("click", async()=>{if(!auth.currentUser) return; const file=profilePicInput.files[0]; if(!file){alert("Select file"); return;} const storageRef=ref(storage,`profilePics/${auth.currentUser.uid}`); await uploadBytes(storageRef,file); const url=await getDownloadURL(storageRef); await updateProfile(auth.currentUser,{photoURL:url}); alert("Profile picture uploaded"); updateProfileUI();});
+function updateProfileUI(){if(auth.currentUser){userEmail.textContent=auth.currentUser.email; userName.textContent=auth.currentUser.displayName||"Not set"; if(auth.currentUser.photoURL){profilePic.src=auth.currentUser.photoURL; profilePic.style.display="block";} else{profilePic.style.display="none";}}}
+
+// Expense tracker functions
+async function fetchTransactions(){if(!currentUser) return; const q=query(collection(db,"transactions"),where("uid","==",currentUser.uid)); const querySnapshot=await getDocs(q); let transactions=[]; querySnapshot.forEach(doc=>{transactions.push({id:doc.id,...doc.data()});}); renderTransactions(transactions);}
+async function addTransaction(e){e.preventDefault(); if(!currentUser) return; const transaction={text:text.value,amount:+amount.value,category:category.value,uid:currentUser.uid}; await addDoc(collection(db,"transactions"),transaction); text.value=""; amount.value=""; fetchTransactions();}
+async function removeTransaction(id){await deleteDoc(doc(db,"transactions",id)); fetchTransactions();}
+window.removeTransaction=removeTransaction;
+
+function renderTransactions(transactions){list.innerHTML=""; let amounts=[]; let categorySums={Food:0,Transport:0,Shopping:0,Bills:0,Salary:0,Other:0,General:0}; transactions.forEach(t=>{amounts.push(t.amount); if(t.amount<0) categorySums[t.category]+=Math.abs(t.amount); const li=document.createElement("li"); const sign=t.amount<0?"-":"+"; li.innerHTML=`${t.text} (${t.category}) <span>${sign}$${Math.abs(t.amount)}</span> <button onclick="removeTransaction('${t.id}')">x</button>`; list.appendChild(li);}); const total=amounts.reduce((acc,i)=>acc+i,0).toFixed(2); const inc=amounts.filter(i=>i>0).reduce((a,i)=>a+i,0).toFixed(2); const exp=amounts.filter(i=>i<0).reduce((a,i)=>a+i,0).toFixed(2); balance.textContent=`$${total}`; income.textContent=`+$${inc}`; expense.textContent=`-$${Math.abs(exp)}`; expenseChart.data.datasets[0].data=Object.values(categorySums); expenseChart.update();}
+
+form.addEventListener("submit", addTransaction);
+
+onAuthStateChanged(auth,user=>{if(user){currentUser=user; authSection.classList.add("hidden"); appSection.classList.remove("hidden"); updateProfileUI(); fetchTransactions();} else{currentUser=null; authSection.classList.remove("hidden"); appSection.classList.add("hidden");}}); // end onAuthStateChanged
+</script>
+
+</body>
+</html>
